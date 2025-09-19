@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Log files
+*.log
+logs/
+
+# Virtual environments
+.venv
+
+# Sensitive environment variables
+.env
+
+# Google Cloud service account credentials
+# Google Cloud service account credentials
+gcp-service-account.json
+
+# Downloaded / scraped files
+data/
+
+# VS Code settings
+.vscode/
