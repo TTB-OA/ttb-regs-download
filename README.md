@@ -78,19 +78,13 @@ The script creates:
 - **Local DB File**: `data/ecfr_data.duckdb`
 - **Local Files**: Downloaded XML and JSON per title in `data/ecfr_title-<number>/`
 - **Database Tables**:
-   - `titles`: High-level title metadata
-   - `title_details`: Detailed regulation text and hierarchy
+  - `titles`: High-level title metadata
+  - `title_details`: Detailed regulation text and hierarchy
 - **Logs**: Detailed processing logs in `logs/`
-
-You can inspect the database manually:
-
-```bash
-uv run python -c "import duckdb; con=duckdb.connect('data/ecfr_data.duckdb'); print(con.execute('SELECT COUNT(*) FROM titles').fetchone())"
-```
 
 ## Database Schema
 
-### titles table
+### `titles` table
 
 - `title_number`: CFR title number (e.g., 27)
 - `title_label`: Human-readable title name
@@ -99,7 +93,7 @@ uv run python -c "import duckdb; con=duckdb.connect('data/ecfr_data.duckdb'); pr
 - `reserved`: Whether title is currently active
 - `title_details_download_date`: Last download timestamp
 
-### title_details table
+### `title_details` table
 
 - `cfr_ref`: Unique CFR reference identifier
 - `reg_text`: Full regulation text content
