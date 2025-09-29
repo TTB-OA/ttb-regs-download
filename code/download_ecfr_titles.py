@@ -21,12 +21,10 @@ md = MarkItDown(enable_plugins=False)
 load_dotenv()
 
 TITLE_NUMBERS = [27, 21, 19, 26, 31]
-DOWNLOAD_DIR = "data/ecfr_title_data"
+DOWNLOAD_DIR = "data"
 
-# MotherDuck configuration
-MOTHERDUCK_TOKEN = os.getenv('MOTHERDUCK_TOKEN')
-MD_DB_NAME = 'ttb_public_data'
-MD_SCHEMA_NAME = 'ecfr_title_data'
+# Local DuckDB configuration
+LOCAL_DB_PATH = os.path.join(DOWNLOAD_DIR, "ecfr_data.duckdb")
 
 # Batch processing configuration
 BATCH_SIZE = 100  # Number of records to process in each batch
@@ -55,23 +53,29 @@ console_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
 logger.addHandler(console_handler)
 
-def get_motherduck_connection():
-    """Get a connection to the MotherDuck database."""
-    if not MOTHERDUCK_TOKEN:
-        raise ValueError("MOTHERDUCK_TOKEN environment variable is not set.")
-    
+def get_local_connection():
+    """Get (and initialize if needed) a connection to the local DuckDB database."""
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    initializing = not os.path.exists(LOCAL_DB_PATH)
     try:
-        conn = duckdb.connect(f"md:{MD_DB_NAME}?motherduck_token={MOTHERDUCK_TOKEN}")
-        # Set the schema to use for all operations
-        conn.execute(f"USE {MD_SCHEMA_NAME};")
-        logger.info(f"Connected to database '{MD_DB_NAME}' schema '{MD_SCHEMA_NAME}'")
+        conn = duckdb.connect(LOCAL_DB_PATH)
+        if initializing:
+            logger.info(f"Created new local DuckDB database at {LOCAL_DB_PATH}")
+        # Ensure required tables exist using the SQL schema file if present
+        schema_sql_path = os.path.join("docs", "ecfr_data_model.sql")
+        if os.path.exists(schema_sql_path):
+            with open(schema_sql_path, 'r', encoding='utf-8') as f:
+                schema_sql = f.read()
+            # Split on semicolons while preserving statements (simple split sufficient here)
+            for stmt in [s.strip() for s in schema_sql.split(';') if s.strip()]:
+                try:
+                    conn.execute(stmt)
+                except Exception as stmt_e:
+                    logger.debug(f"Skipping statement due to error (may be COMMENT or already exists): {stmt_e}")
+        logger.info(f"Connected to local DuckDB at {LOCAL_DB_PATH}")
         return conn
     except Exception as e:
-        logger.error(f"Error connecting to Database '{MD_DB_NAME}': {e}")
-        logger.error("Please ensure:")
-        logger.error("1. Your MOTHERDUCK_TOKEN is correct")
-        logger.error(f"2. The database '{MD_DB_NAME}' exists in your MotherDuck account") 
-        logger.error(f"3. The schema '{MD_SCHEMA_NAME}' exists in the database")
+        logger.error(f"Error connecting to local DuckDB at {LOCAL_DB_PATH}: {e}")
         raise
 
 
@@ -642,29 +646,25 @@ def flatten_all_elements_with_full_hierarchy(node, results=None, parent_chain=No
 
 if __name__ == "__main__":
     with keep.running():
-        if not os.path.exists(DOWNLOAD_DIR):
-            os.makedirs(DOWNLOAD_DIR)
-        
-        logger.info("Starting eCFR titles download process...")
-        conn = get_motherduck_connection()
-        
-        titles_with_dates = get_titles_metadata_and_write_to_db(conn)
-        logger.info(f"Retrieved metadata for {len(titles_with_dates)} titles")
-        
-        # Process each title with progress bar
-        for title in tqdm(titles_with_dates, desc="Processing eCFR titles", unit="title"):
-            download_dir = f"{DOWNLOAD_DIR}/ecfr_title-{title['number']}"
-            if not os.path.exists(download_dir):
-                os.makedirs(download_dir)
-            
-            # Check if we need to download details based on latest_issue_date
-            if should_download_title_details(conn, title):
-                logger.info(f"Title {title['number']}: {title['name']} (Up to date as of {title['up_to_date_as_of']}) Fetching parts and structure...")
-                get_parts_and_structure(title, download_dir, conn)
-                logger.info(f"Successfully processed Title {title['number']}")
-            else:
-                logger.info(f"Title {title['number']}: Skipping download - current data is up to date")
-        
-        conn.close()
-        logger.info("All titles processed and written to Database.")
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        logger.info("Starting eCFR titles download process (local DuckDB mode)...")
+        conn = get_local_connection()
+        try:
+            titles_with_dates = get_titles_metadata_and_write_to_db(conn)
+            logger.info(f"Retrieved metadata for {len(titles_with_dates)} titles")
+            for title in tqdm(titles_with_dates, desc="Processing eCFR titles", unit="title"):
+                download_dir = f"{DOWNLOAD_DIR}/ecfr_title-{title['number']}"
+                os.makedirs(download_dir, exist_ok=True)
+                if should_download_title_details(conn, title):
+                    logger.info(
+                        f"Title {title['number']}: {title['name']} (Up to date as of {title['up_to_date_as_of']}) Fetching parts and structure..."
+                    )
+                    get_parts_and_structure(title, download_dir, conn)
+                    logger.info(f"Successfully processed Title {title['number']}")
+                else:
+                    logger.info(f"Title {title['number']}: Skipping download - current data is up to date")
+            logger.info("All titles processed and written to local DuckDB database.")
+        finally:
+            conn.close()
+            logger.info("Connection closed.")
 
